@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 
-import { MongooseConfigService } from './modules/config/db';
+import { MongooseConfigService } from './config/db';
 import { ChatModule } from './modules/chat/chat.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';

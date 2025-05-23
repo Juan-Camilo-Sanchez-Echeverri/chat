@@ -6,7 +6,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 
 import { AppModule } from './app.module';
-import { envs } from './modules/config/envs';
+import { envs } from '@config/envs';
 
 const logger = new Logger('App');
 
