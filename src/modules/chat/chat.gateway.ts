@@ -9,9 +9,10 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 
-import { WsUser } from '@common/decorators';
-import { WebSocketErrorFilter } from '@common/filters';
-import { AppWsException } from '@common/exceptions';
+import { SocketUser } from '@common/decorators';
+import { SocketExceptionFilter } from '@common/filters';
+import { SocketException } from '@common/exceptions';
+import { AppServer, AppSocket } from '@common/types';
 
 import { User } from '@modules/users/types/user.types';
 import { AuthService } from '@modules/auth/auth.service';
@@ -19,9 +20,8 @@ import { UsersService } from '@modules/users/users.service';
 import { ChatMessagesService } from '@modules/chat-messages/chat-messages.service';
 
 import { ChatService } from './chat.service';
-import { AppServer, AppSocket } from '../../common/types/websocket-connection.types';
 
-@UseFilters(WebSocketErrorFilter)
+@UseFilters(SocketExceptionFilter)
 @WebSocketGateway()
 export class ChatGateway
   implements OnGatewayConnection<AppSocket>, OnGatewayDisconnect<AppSocket>
@@ -54,7 +54,7 @@ export class ChatGateway
   @SubscribeMessage('init-chat')
   async handleInitChat(
     @MessageBody('to') recipientId: string,
-    @WsUser() sender: User,
+    @SocketUser() sender: User,
   ): Promise<void> {
     try {
       const chat = await this.chatService.initializeChat({
@@ -84,7 +84,7 @@ export class ChatGateway
         inChat: chatId,
       });
     } catch (error) {
-      throw new AppWsException('init-chat-error', error.message);
+      throw new SocketException('init-chat-error', error.message);
     }
   }
 }

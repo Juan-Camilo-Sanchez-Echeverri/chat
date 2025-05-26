@@ -4,7 +4,7 @@ import {
   ClientToServerEvents,
   ServerToClientEvents,
   SocketData,
-} from '../interfaces/websocket';
+} from '../interfaces/socket';
 
 type InterServerEvents = Record<never, never>;
 

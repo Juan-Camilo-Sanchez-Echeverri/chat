@@ -1,9 +1,9 @@
 import { User } from '@modules/users/types/user.types';
 
 import { ChatMessage } from '@modules/chat-messages/schemas/chat-messages.schema';
+import { ResumeChat } from '@modules/chat/interfaces/chat.interfaces';
 
-import { InitChatResponse } from './responses.interface';
-import { ResumeChat } from '../../../modules/chat/interfaces/chat.interfaces';
+import { InitChatResponse } from './socket-response.interface';
 
 export interface ClientToServerEvents {
   'init-chat': (to: string) => void;
@@ -20,7 +20,7 @@ export interface SocketData {
   user: User;
 }
 
-export interface WsErrorEvent {
+export interface SocketErrorEvent {
   event: keyof ServerToClientEvents;
   message: string;
 }

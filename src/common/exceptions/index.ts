@@ -1,1 +1,1 @@
-export * from './app-ws.exception';
+export * from './socket.exception';
