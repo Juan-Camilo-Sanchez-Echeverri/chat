@@ -1,7 +1,7 @@
 import { User } from '@modules/users/types/user.types';
 
 export class InitChatDto {
-  to: string;
+  recipientId: string;
 
-  user: User;
+  sender: User;
 }

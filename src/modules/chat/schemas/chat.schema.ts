@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument } from 'mongoose';
 
 import { User } from '@modules/users/types/user.types';
+import { ChatTypes } from '../types/chat.types';
 
 export type ChatDocument = HydratedDocument<Chat>;
 
@@ -15,10 +16,9 @@ export class Chat {
 
   @Prop({
     type: String,
-    enum: ['direct', 'diffusion', 'ia'],
     default: 'direct',
   })
-  type: string;
+  type: ChatTypes;
 
   @Prop({ type: Boolean, default: false })
   locked: boolean;
@@ -28,3 +28,5 @@ export class Chat {
 }
 
 export const ChatSchema = SchemaFactory.createForClass(Chat);
+
+ChatSchema.index({ users: 1, type: 1 }, { unique: true });

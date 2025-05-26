@@ -1,6 +1,4 @@
-import { Injectable } from '@nestjs/common';
-
-import { WsException } from '@nestjs/websockets';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { FilterQuery, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
@@ -10,154 +8,207 @@ import { Role } from '@common/enums';
 
 import { InitChatDto } from './dto/init-chat.dto';
 
-import { ChatMessagesService } from '../chat-messages/chat-messages.service';
-import { UsersService } from '../users/users.service';
+import { User } from '@modules/users/types/user.types';
+import { ChatMessagesService } from '@modules/chat-messages/chat-messages.service';
+import { UsersService } from '@modules/users/users.service';
 
 import { Chat, ChatDocument } from './schemas/chat.schema';
-import { User } from '../users/types/user.types';
 
-interface ChatServiceInitChat {
-  chatLockedForProfessors: boolean;
-  chatLockedForStudents: boolean;
-  chat: ChatDocument;
-  messages?: any[];
-}
+import {
+  ChatServiceInitChat,
+  InitChat,
+  ResumeChat,
+} from './interfaces/chat.interfaces';
 
-export interface InitChat {
-  chatId: string;
-  chatLockedForProfessors: boolean;
-  chatLockedForStudents: boolean;
-  messages?: any;
-}
+import { ChatTypes } from './types/chat.types';
 
 @Injectable()
 export class ChatService {
   constructor(
-    @InjectModel(Chat.name) private chatModel: Model<Chat>,
+    @InjectModel(Chat.name) private readonly chatModel: Model<ChatDocument>,
     private readonly usersService: UsersService,
     private readonly chatMessagesService: ChatMessagesService,
   ) {}
 
-  async findOneByQuery(query: FilterQuery<Chat>): Promise<ChatDocument | null> {
+  async createChat(chatData: Chat): Promise<ChatDocument> {
+    const chat = new this.chatModel(chatData);
+    return chat.save();
+  }
+
+  async findChatByQuery(
+    query: FilterQuery<Chat>,
+  ): Promise<ChatDocument | null> {
     return await this.chatModel.findOne(query);
   }
 
-  async findByQuery(query: FilterQuery<Chat>): Promise<ChatDocument[]> {
+  async findChatsByQuery(query: FilterQuery<Chat>): Promise<ChatDocument[]> {
     return await this.chatModel.find(query);
   }
 
-  async initChat(initChatDto: InitChatDto): Promise<InitChat> {
-    const { to, user } = initChatDto;
-    const { _id, institution } = user;
+  async initializeChat(initChatDto: InitChatDto): Promise<InitChat> {
+    const { recipientId, sender } = initChatDto;
+    const { institution } = sender;
 
-    const [userFrom, userTo] = await Promise.all([
-      this.usersService.findOneById(_id),
-      this.usersService.findOneById(to),
+    const [senderInfo, receiver] = await Promise.all([
+      this.usersService.findOneById(sender._id),
+      this.usersService.findOneById(recipientId),
     ]);
 
-    if (!userFrom || !userTo) throw new WsException('User not found');
+    if (!senderInfo || !receiver) throw new NotFoundException('User not found');
 
-    const chatData = await this.initiateChat([_id, to], institution);
+    const chatInitResult = await this.createOrRetrieveChat(
+      [senderInfo, receiver],
+      institution,
+    );
 
     return {
-      chatId: chatData.chat._id.toString(),
-      chatLockedForProfessors: chatData.chatLockedForProfessors,
-      chatLockedForStudents: chatData.chatLockedForStudents,
-      messages: chatData.messages,
+      chatId: chatInitResult.chat._id.toString(),
+      chatLockedForProfessors: chatInitResult.chatLockedForProfessors,
+      chatLockedForStudents: chatInitResult.chatLockedForStudents,
     };
   }
 
-  async initiateChat(
-    users: [string, string],
+  private async createOrRetrieveChat(
+    users: [User, User],
     institution: ObjectId,
   ): Promise<ChatServiceInitChat> {
+    const userIds = users.map((user) => user._id.toString());
+
     try {
-      const chat =
-        (await this.findOneByQuery({
-          users: { $size: users.length, $all: [...users] },
+      let chat = await this.findChatByQuery({
+        users: { $all: userIds, $size: users.length },
+        type: 'direct',
+      });
+
+      if (!chat) {
+        chat = await this.createChat({
+          users: userIds,
           type: 'direct',
-        })) ||
-        (await this.chatModel.create({
-          users,
           initiator: users[0],
-          type: 'direct',
-        }));
-
-      const userTo = await this.usersService.findOneById(users[1]);
-      if (!userTo) throw new WsException('User not found');
-
-      const { chatLockedForProfessors, chatLockedForStudents, role } = userTo;
-
-      if (role !== Role.Student) {
-        const administrative = await this.getAdministrativeUsers(institution);
-        const isAdministrative = administrative.some(
-          (admin) => String(admin._id) === String(users[1]),
-        );
-        if (isAdministrative) return this.getDiffusionChat(users[0], users[1]);
+          locked: false,
+        });
       }
 
-      const messages = await this.chatMessagesService.getMessagesChat(chat._id);
+      const recipient = users[1];
+      const { chatLockedForProfessors, chatLockedForStudents } = recipient;
 
-      const result: ChatServiceInitChat = {
+      if (recipient.role !== Role.Student) {
+        const admins = await this.findActiveInstitutionAdmins(institution);
+        const isAdmin = admins.some(
+          (admin) => admin._id.toString() === recipient._id.toString(),
+        );
+
+        if (isAdmin) {
+          return this.loadDiffusionChat(userIds[0], userIds[1]);
+        }
+      }
+
+      return {
+        chat,
         chatLockedForProfessors: chatLockedForProfessors ?? false,
         chatLockedForStudents: chatLockedForStudents ?? false,
-        chat,
-        messages,
       };
-
-      return result;
     } catch (error) {
-      console.log('error al iniciar chat', error);
-      throw new WsException('Error al iniciar chat');
+      console.error('Failed to create or retrieve chat:', error);
+      throw new Error('Error while initiating chat');
     }
   }
 
-  async getMessagesChat(chatId: ObjectId) {
-    return await this.chatMessagesService.getMessagesChat(chatId);
+  async findChatBetweenUsers(
+    users: [string, string],
+    type: ChatTypes = 'direct',
+  ): Promise<ChatDocument | null> {
+    const chat = await this.chatModel.findOne({
+      users: { $size: users.length, $all: [...users] },
+      type,
+    });
+
+    return chat ? chat : null;
   }
 
-  async getAdministrativeUsers(institution: ObjectId): Promise<User[]> {
-    const rectors = await this.usersService.findByQuery({
-      role: 'rector',
-      status: 'active',
-      institution,
-    });
+  async findActiveInstitutionAdmins(institution: ObjectId): Promise<User[]> {
+    const [admins, rectors] = await Promise.all([
+      this.usersService.findByQuery({
+        role: Role.Admin,
+        status: 'active',
+        institution,
+      }),
 
-    const admins = await this.usersService.findByQuery({
-      role: 'admin',
-      status: 'active',
-      institution,
-    });
+      this.usersService.findByQuery({
+        role: Role.Rector,
+        status: 'active',
+        institution,
+      }),
+    ]);
 
     return [...admins, ...rectors];
   }
 
-  async getDiffusionChat(
-    userFrom: string,
-    userTo: string,
+  private async loadDiffusionChat(
+    senderId: string,
+    adminId: string,
   ): Promise<ChatServiceInitChat> {
-    const diffusionChats = await this.findByQuery({
-      initiator: userTo,
-      users: { $in: [userFrom] },
+    const diffusionChats = await this.findChatsByQuery({
+      initiator: adminId,
+      users: { $in: [senderId] },
     });
 
-    const result = await Promise.all(
-      diffusionChats.map(async (chat) => {
-        const messages = await this.chatMessagesService.getMessagesChat(
-          chat._id,
-        );
-        return { chat, messages };
-      }),
+    const chatsWithMessages = await Promise.all(
+      diffusionChats.map(async (chat) => ({
+        chat,
+        messages: await this.chatMessagesService.getMessagesChat(
+          chat._id.toString(),
+          1,
+        ),
+      })),
     );
 
-    const chat = result.map((item) => item.chat)[0];
-    const messages = result.map((item) => item.messages).flat();
+    const firstChat = chatsWithMessages[0]?.chat;
+    const allMessages = chatsWithMessages.flatMap((item) => item.messages);
 
     return {
-      chat,
-      messages,
+      chat: firstChat,
+      messages: allMessages,
       chatLockedForProfessors: false,
       chatLockedForStudents: false,
     };
+  }
+
+  async resumeChat(chatId: string): Promise<ResumeChat> {
+    const messages = await this.chatMessagesService.getMessagesChat(chatId);
+
+    const filesSend: ResumeChat['filesSend'] = [];
+    const linksSend: ResumeChat['linksSend'] = [];
+
+    messages.forEach(({ file, type, message, createdAt }) => {
+      if (file) {
+        const { name, url, size, duration } = file;
+        filesSend.push({ name, url, size, duration, date: createdAt });
+      }
+
+      if (type === 'link') {
+        const urls = this.extractValidUrls(message);
+        urls.forEach((url) => {
+          linksSend.push({ message: url, date: createdAt });
+        });
+      }
+    });
+
+    return { filesSend, linksSend };
+  }
+
+  private extractValidUrls(text: string): string[] {
+    const urlRegex = /((http|https):\/\/|www\.)[^\s]+/g;
+    const urls = text.match(urlRegex) || [];
+    return urls.filter((url) => this.isValidUrl(url));
+  }
+
+  private isValidUrl(urlString: string): boolean {
+    try {
+      new URL(urlString);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

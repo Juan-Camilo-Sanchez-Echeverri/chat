@@ -1,3 +1,5 @@
+import { UseFilters } from '@nestjs/common';
+
 import {
   MessageBody,
   OnGatewayConnection,
@@ -6,77 +8,83 @@ import {
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
-import { WsUser } from '@common/decorators/ws-user.decorator';
+
+import { WsUser } from '@common/decorators';
+import { WebSocketErrorFilter } from '@common/filters';
+import { AppWsException } from '@common/exceptions';
+
+import { User } from '@modules/users/types/user.types';
+import { AuthService } from '@modules/auth/auth.service';
+import { UsersService } from '@modules/users/users.service';
+import { ChatMessagesService } from '@modules/chat-messages/chat-messages.service';
 
 import { ChatService } from './chat.service';
-import { AuthService } from '../auth/auth.service';
+import { AppServer, AppSocket } from '../../common/types/websocket-connection.types';
 
-import { User } from '../users/types/user.types';
-
-interface SocketData {
-  user: User;
-}
-
-type InterEvents = Record<never, never>;
-
-interface InitChatResponse {
-  chatId: string;
-  chatLockedForProfessors: boolean;
-  chatLockedForStudents: boolean;
-}
-
-interface ClientEvents {
-  'init-chat': (to: string) => void;
-}
-
-interface ServerEvents {
-  'init-chat': (response: InitChatResponse) => void;
-}
-
-type AppSocket = Socket<ClientEvents, ServerEvents, InterEvents, SocketData>;
-type AppServer = Server<ClientEvents, ServerEvents, InterEvents, SocketData>;
-
+@UseFilters(WebSocketErrorFilter)
 @WebSocketGateway()
-export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class ChatGateway
+  implements OnGatewayConnection<AppSocket>, OnGatewayDisconnect<AppSocket>
+{
   @WebSocketServer()
   server: AppServer;
 
   constructor(
     private readonly chatService: ChatService,
     private readonly authService: AuthService,
+    private readonly chatMessagesService: ChatMessagesService,
+    private readonly usersService: UsersService,
   ) {}
 
-  async handleConnection(client: AppSocket) {
+  async handleConnection(client: AppSocket): Promise<void> {
     try {
-      const infoUser = await this.authService.authenticateSocket(client);
-      await client.join(infoUser._id);
-      client.data.user = infoUser;
+      const authUser = await this.authService.authenticateSocket(client);
+      await client.join(authUser._id.toString());
+      client.data.user = authUser;
     } catch (error) {
-      console.log('Error:', error);
+      console.error('[Socket] Error de autenticación:', error);
       client.disconnect();
     }
   }
 
-  handleDisconnect(client: AppSocket) {
-    void client.leave(client.id);
+  handleDisconnect(client: AppSocket): void {
+    client.disconnect();
   }
 
   @SubscribeMessage('init-chat')
-  async create(@MessageBody() to: string, @WsUser() user: User) {
+  async handleInitChat(
+    @MessageBody('to') recipientId: string,
+    @WsUser() sender: User,
+  ): Promise<void> {
     try {
-      const chat = await this.chatService.initChat({ to, user });
+      const chat = await this.chatService.initializeChat({
+        recipientId,
+        sender,
+      });
+
+      const { chatId, chatLockedForProfessors, chatLockedForStudents } = chat;
+
+      const [messages, resume] = await Promise.all([
+        this.chatMessagesService.getMessagesChat(chatId, 1),
+        this.chatService.resumeChat(chatId),
+      ]);
 
       const response = {
-        chatId: chat.chatId,
-        chatLockedForProfessors: chat.chatLockedForProfessors,
-        chatLockedForStudents: chat.chatLockedForStudents,
+        chatId,
+        chatLockedForProfessors,
+        chatLockedForStudents,
       };
 
       this.server.emit('init-chat', response);
-      return response;
+      if (messages.length) this.server.emit('messages-chat', messages);
+      if (resume) this.server.emit('resume-chat', resume);
+
+      await this.usersService.update(sender._id, {
+        lastActivity: new Date(),
+        inChat: chatId,
+      });
     } catch (error) {
-      console.log('Error:', error);
+      throw new AppWsException('init-chat-error', error.message);
     }
   }
 }
