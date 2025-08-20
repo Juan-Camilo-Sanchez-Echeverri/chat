@@ -1,4 +1,5 @@
 import { WsException } from '@nestjs/websockets';
+
 import { SocketErrorEvent } from '../interfaces/socket';
 
 export class SocketException extends WsException {
