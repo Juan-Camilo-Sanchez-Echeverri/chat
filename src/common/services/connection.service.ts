@@ -3,7 +3,7 @@ import { Connection, Types, Collection, Document, FilterQuery } from 'mongoose';
 import { FilterDto } from '../dto';
 
 export class ConnectionService<T extends Document> {
-  private collection: Collection<T>;
+  collection: Collection<T>;
 
   constructor(
     @InjectConnection() private readonly connection: Connection,
