@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
 import { ChatMessage } from './schemas/chat-messages.schema';
+import { CreateChatMessagesDto } from './dto/create-chat-messages.dto';
 
 @Injectable()
 export class ChatMessagesService {
@@ -27,5 +28,13 @@ export class ChatMessagesService {
     const messages = await query;
 
     return messages;
+  }
+
+  async createMessage(
+    messageData: CreateChatMessagesDto,
+  ): Promise<ChatMessage> {
+    const newMessage = new this.chatMessageModel(messageData);
+
+    return await newMessage.save();
   }
 }
