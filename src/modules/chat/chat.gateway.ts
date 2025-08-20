@@ -10,16 +10,19 @@ import {
 } from '@nestjs/websockets';
 
 import { SocketUser } from '@common/decorators';
-import { SocketExceptionFilter } from '@common/filters';
+import { Role } from '@common/enums';
 import { SocketException } from '@common/exceptions';
+import { SocketExceptionFilter } from '@common/filters';
 import { AppServer, AppSocket } from '@common/types';
 
-import { User } from '@modules/users/types/user.types';
 import { AuthService } from '@modules/auth/auth.service';
-import { UsersService } from '@modules/users/users.service';
 import { ChatMessagesService } from '@modules/chat-messages/chat-messages.service';
+import { User } from '@modules/users/types/user.types';
+import { UsersService } from '@modules/users/users.service';
 
 import { ChatService } from './chat.service';
+
+import { DirectMessageDto } from './dto';
 
 @UseFilters(SocketExceptionFilter)
 @WebSocketGateway()
@@ -47,8 +50,17 @@ export class ChatGateway
     }
   }
 
-  handleDisconnect(client: AppSocket): void {
-    client.disconnect();
+  async handleDisconnect(client: AppSocket): Promise<void> {
+    const user = client.data.user;
+    if (user) {
+      await this.usersService.update(user._id, {
+        online: false,
+        lastActivity: new Date(),
+        inChat: null,
+      });
+
+      client.disconnect();
+    }
   }
 
   @SubscribeMessage('init-chat')
@@ -85,6 +97,38 @@ export class ChatGateway
       });
     } catch (error) {
       throw new SocketException('init-chat-error', error.message);
+    }
+  }
+
+  @SubscribeMessage('direct-message')
+  async handleDirectMessage(
+    @MessageBody() directMessageDto: DirectMessageDto,
+    @SocketUser() sender: User,
+  ): Promise<void> {
+    try {
+      const meId = sender._id.toString();
+      const { role } = sender;
+
+      await this.usersService.update(sender._id, {
+        lastActivity: new Date(),
+      });
+
+      const { message } = await this.chatService.sendDirectMessage(
+        sender,
+        directMessageDto,
+      );
+
+      const resumeChat = await this.chatService.resumeChat(
+        String(message.chat),
+      );
+
+      if (role === Role.Student) {
+      }
+
+      this.server.to(directMessageDto.to).emit('direct-message', message);
+      this.server.to(meId).emit('resume-chat', resumeChat);
+    } catch (error) {
+      throw new SocketException('direct-message', error.message);
     }
   }
 }
