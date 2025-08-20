@@ -27,7 +27,7 @@ export interface User {
   online?: boolean;
   expirationAccount?: Date;
   isCaretaker?: boolean;
-  inChat: string;
+  inChat: string | null;
   lastActivity?: Date;
 }
 
