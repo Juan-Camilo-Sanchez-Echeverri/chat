@@ -1,16 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
-import { FilterQuery, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
+import { FilterQuery, Model } from 'mongoose';
 
-import { ObjectId } from '@common/types/mongo.types';
 import { Role } from '@common/enums';
+import { ObjectId } from '@common/types';
 
-import { InitChatDto } from './dto/init-chat.dto';
-
-import { User } from '@modules/users/types/user.types';
 import { ChatMessagesService } from '@modules/chat-messages/chat-messages.service';
+import { User } from '@modules/users/types/user.types';
 import { UsersService } from '@modules/users/users.service';
+
+import { InitChatDto, DirectMessageDto } from './dto';
 
 import { Chat, ChatDocument } from './schemas/chat.schema';
 
@@ -93,7 +93,9 @@ export class ChatService {
       const { chatLockedForProfessors, chatLockedForStudents } = recipient;
 
       if (recipient.role !== Role.Student) {
-        const admins = await this.findActiveInstitutionAdmins(institution);
+        const admins =
+          await this.usersService.findActiveInstitutionAdmins(institution);
+
         const isAdmin = admins.some(
           (admin) => admin._id.toString() === recipient._id.toString(),
         );
@@ -126,22 +128,23 @@ export class ChatService {
     return chat ? chat : null;
   }
 
-  async findActiveInstitutionAdmins(institution: ObjectId): Promise<User[]> {
-    const [admins, rectors] = await Promise.all([
-      this.usersService.findByQuery({
-        role: Role.Admin,
-        status: 'active',
-        institution,
-      }),
-
-      this.usersService.findByQuery({
-        role: Role.Rector,
-        status: 'active',
-        institution,
-      }),
+  async sendDirectMessage(sender: User, dto: DirectMessageDto) {
+    const chat = await this.findChatBetweenUsers([
+      sender._id.toString(),
+      dto.to,
     ]);
 
-    return [...admins, ...rectors];
+    const chatId = chat?._id.toString();
+
+    const message = await this.chatMessagesService.createMessage({
+      chat: chatId!,
+      user: sender._id.toString(),
+      message: dto.message,
+      file: dto.file ? dto.file : null,
+      type: dto.type,
+    });
+
+    return { message };
   }
 
   private async loadDiffusionChat(
