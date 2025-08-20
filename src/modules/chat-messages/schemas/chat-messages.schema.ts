@@ -1,8 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import mongoose, { HydratedDocument } from 'mongoose';
-import { Types } from 'mongoose';
-import { FileMessage, FileMessageSchema } from './file-message.schema';
+
+import mongoose, { HydratedDocument, Types } from 'mongoose';
+
 import { ChatMessageType } from '../enums/chat-messages-type.enum';
+
+import { FileMessage, FileMessageSchema } from './file-message.schema';
 
 export type ChatMessageDocument = HydratedDocument<ChatMessage>;
 
@@ -23,13 +25,13 @@ export class ChatMessage {
   @Prop({ default: false })
   isDiffusion: boolean;
 
-  @Prop({ type: FileMessageSchema })
-  file: FileMessage;
+  @Prop({ type: FileMessageSchema, default: null })
+  file: FileMessage | null;
 
   @Prop({ enum: ChatMessageType })
   type: `${ChatMessageType}`;
 
-  @Prop({ type: [mongoose.Schema.Types.ObjectId], ref: 'User' })
+  @Prop({ type: [mongoose.Schema.Types.ObjectId], ref: 'User', default: [] })
   readBy: Types.ObjectId[];
 
   createdAt: Date;
