@@ -1,4 +1,5 @@
-import { ChatMessage } from '../../chat-messages/schemas/chat-messages.schema';
+import { ChatMessage } from '@modules/chat-messages/schemas/chat-messages.schema';
+
 import { ChatDocument } from '../schemas/chat.schema';
 
 export interface ChatServiceInitChat {
