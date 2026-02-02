@@ -37,7 +37,7 @@
     "@nestjs/platform-socket.io": "^11.0.14",
     "@nestjs/websockets": "^11.0.14",
     "@onesignal/node-onesignal": "^5.0.0-alpha-02",
-    "bcrypt": "^5.1.1",
+    "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "compression": "^1.8.1",
